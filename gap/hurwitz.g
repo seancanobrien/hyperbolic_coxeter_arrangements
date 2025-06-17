@@ -1,16 +1,17 @@
+Last := function(L)
+        return L[Length(L)];
+    end;
+
 HurwitzActionCustomConj := function(i, R, conj)
     local result;
     result := ShallowCopy(R);
-
     if i > 0 then
         result[i] := conj(R[i], R[i + 1]);
         result[i + 1] := R[i];
-
     elif i < 0 then
         i := -i;
         result[i] := R[i + 1];
         result[i + 1] := conj(R[i + 1]^(-1), R[i]);
-
     fi;
 
     return result;
@@ -37,10 +38,8 @@ end;
 
 GenerateWords := function(alphabet, n)
     local flatAlphabet, ComplementPair, IsValidWord, allWords, validWords, word, pairs, i, sym, pair;
-
     # Flatten nested alphabet list
     flatAlphabet := Concatenation(alphabet);
-
     # Function to compute complement of a symbol
     ComplementPair := function(sym, alpha)
         local i, pair;
@@ -54,9 +53,8 @@ GenerateWords := function(alphabet, n)
                 fi;
             fi;
         od;
-        return fail;  # No complement found
+        return 0;  # No complement found
     end;
-
     # Function to check whether a word is valid
     IsValidWord := function(word)
         local j, sym1, sym2;
@@ -69,42 +67,135 @@ GenerateWords := function(alphabet, n)
         od;
         return true;
     end;
-
     # Generate all words of length 0 to n
     allWords := [];
     for i in [0..n] do
         Append(allWords, Tuples(flatAlphabet, i));
     od;
-
     # Filter words
     validWords := Filtered(allWords, IsValidWord);
-
     return validWords;
 end;
 
 GetMidAndHalf := function(word)
-    local l, m;
-    l := Length(word);
+    local l, m, mid, half;
+    l := LengthWord(word);
     m := (l+1)/2;
-    return [Subword(word,m,m), Subword(word,1,m-1)];
+    mid := Subword(word,m,m);
+    if l<2 then
+        half := IdWord;
+    else
+        half := Subword(word, 1, m-1);
+    fi;
+    return [mid, half];
 end;
 
+WriteWordToFile := function(filename, word)
+    local i, letter, result;
+    result := "";
+    # Iterate over each character in the word
+    for i in [1..LengthWord(word)-1] do
+        letter := Subword(word, i, i);
+        AppendTo(filename, letter, "*");
+    od;
+    AppendTo(filename, Subword(word, LengthWord(word), LengthWord(word)));
+end;
 
+PrintGroupedWords := function(grouped_words, file_name)
+    local i, j, group, word, midHalf;
+    for i in [1..Length(grouped_words)] do
+        group := grouped_words[i];
+        for j in [1..Length(group)] do
+            word := group[j];
+            midHalf := GetMidAndHalf(word);
+            AppendTo(file_name, midHalf[1]);
+            AppendTo(file_name, ": ");
+            if LengthWord(midHalf[2]) > 0 then
+                WriteWordToFile(file_name, midHalf[2]);
+            else
+                AppendTo(file_name, "IdWord");
+            fi;
+            AppendTo(file_name, "\n");
+        od;
+        AppendTo(file_name, "\n");
+        AppendTo(file_name, "\n");
+    od;
+end;
 
-F := FreeGroup("a", "b", "c");;
-a := F.1;;  b := F.2;;  c := F.3;;
+GroupIntoEquivalenceClasses := function(list, isEqual)
+    local classes, obj, class, i, j, matched;
+    classes := [];
+    for i in [1..Length(list)] do
+        obj := list[i];
+        matched := false;
+        for j in [1..Length(classes)] do
+            class := classes[j];
+            # Compare to representative (first element)
+            if isEqual(obj, class[1]) then
+                Add(class, obj);
+                matched := true;
+                # Can't use break, so simulate exit
+                j := Length(classes);
+            fi;
+        od;
+        if not matched then
+            Add(classes, [obj]);
+        fi;
+    od;
+    return classes;
+end;
 
-yo := List(GenerateWords([[-1,1],[-2,2]],5), action -> MultipleHurwitzFreeGroup([a,b,c], action));
-yo := Set(Concatenation(yo));
-yo := List(yo, GetMidAndHalf);
+WordsEqualAfterHom := function(word1, word2, hom)
+    return hom(word1)=hom(word2);
+end;
 
-filename := "words.csv";
-file := OutputTextFile(filename, false);  # 'false' means overwrite
+alph :=[
+"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
+];
 
-for midHalf in yo do
-    AppendTo(file, String(midHalf[1]), ": ", String(midHalf[2]), "\n");
-od;
+MakeFreeGroup := function(n)
+    local names, F;
+    names := List([1..n], i -> alph[i]);  # "a", "b", ...
+    F := FreeGroup(names);
+    return F;
+end;
 
-CloseStream(file);
+MakeHom := function(F, W)
+    return function(x)
+        return MappedWord(x, Generators(F), Generators(W));
+    end;
+end;
 
+PrintHurwitzWordsGroupedByCox := function(W, braid_length, filename)
+    local rank, F, hom, coxeter_equality, hurwitz_factorisations,
+        hurwitz_words, grouped_hurwitz_words;
+    rank := Rank(W);
+    F := MakeFreeGroup(rank);
+    hom:= MakeHom(F, W);
+    coxeter_equality := function(word1, word2)
+        return hom(word1) = hom(word2);
+    end;
+    # main logic of function
+    hurwitz_factorisations := List(GenerateWords(List([1..rank-1], x -> [-x,x]), braid_length), action -> MultipleHurwitzFreeGroup(Generators(F), action));
+    hurwitz_words := Set(Concatenation(hurwitz_factorisations));
+    grouped_hurwitz_words := GroupIntoEquivalenceClasses(hurwitz_words, coxeter_equality);
+    # printing to file
+    PrintTo(filename, "");  # clear the file
+    AppendTo(filename, "W = ", W, "\n");
+    AppendTo(filename, "Max braid length = ", braid_length, "\n");
+    AppendTo(filename, "Total of ", Length(grouped_hurwitz_words), " different coxeter group elements (grouped by line breaks).\n");
+    AppendTo(filename, "Notation: 'y: x' means xyx^(-1)\n");
+    AppendTo(filename, "=========================================================\n\n");
+    PrintGroupedWords(grouped_hurwitz_words, filename);
+end;
 
+# 3-5-3 Coxeter group
+W_353 := CoxeterGroupByCoxeterMatrix(
+    [
+    [1,3,2,2],
+    [3,1,5,2],
+    [2,5,1,3],
+    [2,2,3,1]
+    ]);
+
+PrintHurwitzWordsGroupedByCox(W_353, 5, "words_353.csv");
