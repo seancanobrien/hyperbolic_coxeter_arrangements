@@ -200,6 +200,39 @@ AllShortAltsAreMinimalWords := function(words, gens, coxeter_matrix)
     return true;
 end;
 
+WordsHaveMemberWithMinAltLeqCoxeterMatrix := function(words, gens, coxeter_matrix)
+    local i, word;
+    for i in [1..Length(words)] do
+        word := words[i];
+        if LessEqualMatrix( MaxAlternatingLengthMatrix(word, gens), coxeter_matrix) then
+            return true;
+        fi;
+    od;
+    return false;
+ end;
+
+MinimalLengthWord := function(words)
+  local min, min_word_length, w, i;
+  min := words[1];
+  min_word_length := LengthWord(min);
+  for i in [1..Length(words)] do
+    w := words[i];
+    if LengthWord(w) < min_word_length then
+      min := w;
+      min_word_length := LengthWord(min);
+    fi;
+  od;
+  return min;
+end;
+
+MinimalNonCrossingWordIsMinimalWord := function(words, coxeter_matrix, hom)
+    local W, minimal_length_word, minimal_coxeter_length;
+    W := CoxeterGroupByCoxeterMatrix(coxeter_matrix);
+    minimal_length_word := MinimalLengthWord(words);
+    minimal_coxeter_length := CoxeterLength(W, hom(minimal_length_word));
+    return LengthWord(minimal_length_word) = minimal_coxeter_length;
+end;
+
 WriteWordToFile := function(filename, word)
     local i, letter, result;
     result := "";
@@ -211,26 +244,47 @@ WriteWordToFile := function(filename, word)
     AppendTo(filename, Subword(word, LengthWord(word), LengthWord(word)));
 end;
 
-PrintGroupedWords := function(grouped_words, gens, coxeter_matrix, file_name)
-    local i, j, group, word, midHalf, max_alt_lengths, group_satisfies_test, all_groups_satisfy_test;
-    all_groups_satisfy_test := true;
+PrintGroupedWords := function(grouped_words, gens, coxeter_matrix, hom, file_name)
+    local i, j, group, word, midHalf, max_alt_lengths,
+        group_satisfies_test_1, all_groups_satisfy_test_1,
+        group_satisfies_test_2, all_groups_satisfy_test_2,
+        group_satisfies_test_3, all_groups_satisfy_test_3,
+        group_satisfies_test_4, all_groups_satisfy_test_4;
+    all_groups_satisfy_test_1 := true;
+    all_groups_satisfy_test_2 := true;
+    all_groups_satisfy_test_3 := true;
+    all_groups_satisfy_test_4 := true;
     for i in [1..Length(grouped_words)] do
         group := grouped_words[i];
-        group_satisfies_test := AllShortAltsAreMinimalWords(group, gens, coxeter_matrix);
-        all_groups_satisfy_test := all_groups_satisfy_test and group_satisfies_test;
+        group_satisfies_test_1 := MinimalNonCrossingWordIsMinimalWord(group, coxeter_matrix, hom);
+        all_groups_satisfy_test_1 := all_groups_satisfy_test_1 and group_satisfies_test_1;
+        group_satisfies_test_2 := WordsHaveMemberWithMinAltLeqCoxeterMatrix(group, gens, coxeter_matrix);
+        all_groups_satisfy_test_2 := all_groups_satisfy_test_2 and group_satisfies_test_2;
+        group_satisfies_test_3 := group_satisfies_test_1 or not(group_satisfies_test_2);
+        all_groups_satisfy_test_3 := all_groups_satisfy_test_3 and group_satisfies_test_3;
+        group_satisfies_test_4 := AllShortAltsAreMinimalWords(group, gens, coxeter_matrix);
+        all_groups_satisfy_test_4 := all_groups_satisfy_test_4 and group_satisfies_test_4;
         AppendTo(file_name,
-            "Only min length words have minimal alternating patterns: ",
-            group_satisfies_test,
-            "\n"
+            "Length of min length noncross word = coxeter length: ",
+            group_satisfies_test_1,
+            "\nExists word with minimal alternating patterns: ",
+            group_satisfies_test_2,
+            "\nIf exists word with minimal alternating pattern -> is min cox word: ",
+            group_satisfies_test_3,
+            "\nOnly min length noncross words have min alternating patterns: ",
+            group_satisfies_test_4,
+            "\n-----------------------------------------------------------------------\n"
+            
         );
         for j in [1..Length(group)] do
             word := group[j];
             midHalf := GetMidAndHalf(word);
             max_alt_lengths := MaxAlternatingLengthMatrix(word, gens);
+            word_has_alts_leq_cox_matrix := LessEqualMatrix(max_alt_lengths, coxeter_matrix);
             AppendTo(file_name,
-                max_alt_lengths,
-                " -- ",
-                LessEqualMatrix(max_alt_lengths, coxeter_matrix),
+                # max_alt_lengths,
+                # " -- ",
+                word_has_alts_leq_cox_matrix,
                 " -- ",
                 midHalf[1],
                 ": "
@@ -245,7 +299,10 @@ PrintGroupedWords := function(grouped_words, gens, coxeter_matrix, file_name)
         AppendTo(file_name, "\n");
         AppendTo(file_name, "\n");
     od;
-    return all_groups_satisfy_test;
+    return [all_groups_satisfy_test_1,
+            all_groups_satisfy_test_2,
+            all_groups_satisfy_test_3,
+            all_groups_satisfy_test_4];
 end;
 
 GroupIntoEquivalenceClasses := function(list, isEqual)
@@ -294,7 +351,7 @@ end;
 
 PrintHurwitzWordsGroupedByCox := function(coxeter_matrix, braid_length, filename)
     local W, rank, gens, F, hom, coxeter_equality, hurwitz_factorisations,
-        hurwitz_words, grouped_hurwitz_words, all_groups_satisfy_test;
+        hurwitz_words, grouped_hurwitz_words, all_groups_satisfy_tests;
     W := CoxeterGroupByCoxeterMatrix(coxeter_matrix);
     rank := Rank(W);
     F := MakeFreeGroup(rank);
@@ -313,11 +370,17 @@ PrintHurwitzWordsGroupedByCox := function(coxeter_matrix, braid_length, filename
     AppendTo(filename, "Total of ", Length(grouped_hurwitz_words), " different coxeter group elements (grouped by line breaks).\n");
     AppendTo(filename, "Notation: 'y: x' means xyx^(-1)\n");
     AppendTo(filename, "=================================================================\n\n");
-    all_groups_satisfy_test := PrintGroupedWords(grouped_hurwitz_words, Generators(F), coxeter_matrix, filename);
+    all_groups_satisfy_tests := PrintGroupedWords(grouped_hurwitz_words, Generators(F), coxeter_matrix, hom, filename);
     AppendTo(filename,
         "\n\n=================================================================\n\n",
-        "All groupings of words only have minimal word length words with\nminimal alternating lengths: ",
-        all_groups_satisfy_test
+        "All length of min length noncross word = coxeter length: ",
+        all_groups_satisfy_tests[1],
+        "\n\nAll exists word with minimal alternating patterns: ",
+        all_groups_satisfy_tests[2],
+        "\n\nAll if exists word with minimal alternating pattern -> is min cox word: ",
+        all_groups_satisfy_tests[3],
+        "\n\nAll only min length noncross words have min alternating patterns: ",
+        all_groups_satisfy_tests[4]
     );
 end;
 
@@ -399,13 +462,13 @@ W_random_large_type_04 :=
 
 # PrintHurwitzWordsGroupedByCox(W_353, 5, "words_353.csv");
 # PrintHurwitzWordsGroupedByCox(W_all_2, 6, "words_all_2.csv");
-# PrintHurwitzWordsGroupedByCox(W_all_3, 6, "words_all_3.csv");
+PrintHurwitzWordsGroupedByCox(W_all_3, 6, "words_all_3.csv");
 # PrintHurwitzWordsGroupedByCox(W_all_4, 6, "words_all_4.csv");
 # PrintHurwitzWordsGroupedByCox(W_all_5, 6, "words_all_5.csv");
 # PrintHurwitzWordsGroupedByCox(W_random_large_type_01, 6, "words_random_large_type_01.csv");
 # PrintHurwitzWordsGroupedByCox(W_random_large_type_02, 6, "words_random_large_type_02.csv");
-PrintHurwitzWordsGroupedByCox(W_random_large_type_03, 6, "words_random_large_type_03.csv");
-PrintHurwitzWordsGroupedByCox(W_random_large_type_04, 6, "words_random_large_type_04.csv");
+# PrintHurwitzWordsGroupedByCox(W_random_large_type_03, 6, "words_random_large_type_03.csv");
+# PrintHurwitzWordsGroupedByCox(W_random_large_type_04, 6, "words_random_large_type_04.csv");
 
 F := MakeFreeGroup(3);
 a := F.1;; b := F.2;; c := F.3;;
